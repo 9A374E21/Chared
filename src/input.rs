@@ -5,7 +5,18 @@ use crossterm::{
     execute,
     terminal::{ClearType, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size},
 };
-use std::io;
+
+use std::fs::File;
+use std::io::{self, Read};
+
+/// 读取指定文件，返回内容。
+pub fn 读取(path: &str) -> io::Result<String> {
+    // 打开文件并一次性读取全部内容，保留完整缓冲区
+    let mut 文件 = File::open(path)?;
+    let mut 缓冲区 = Vec::new();
+    文件.read_to_end(&mut 缓冲区)?;
+    String::from_utf8(缓冲区).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
 
 pub fn 输入(
     输入起始行: u16,
@@ -14,7 +25,7 @@ pub fn 输入(
     行向量: &[&str],
     最大行数: usize,
     起始行索引: &mut usize,
-    光标: &mut crate::光标,
+    光标: &mut crate::control::光标,
 ) -> io::Result<()> {
     // 原始模式，防字符转义
     enable_raw_mode()?;
@@ -32,11 +43,10 @@ pub fn 输入(
             }
         };
 
-        // 处理键释放事件：立即把光标定位到上方窗口
+        //移回光标
         if let Event::Key(key_event) = event
             && key_event.kind == KeyEventKind::Release
         {
-            // 将光标移回到当前行/列位置（保持在显示区）
             execute!(io::stdout(), crossterm::cursor::MoveTo(光标.列, 光标.行))?;
             continue;
         }
@@ -48,7 +58,6 @@ pub fn 输入(
             if key_event.code == KeyCode::Char('x')
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
             {
-                // 恢复原始模式后正常返回
                 disable_raw_mode()?;
                 break Ok(());
             }
@@ -63,7 +72,6 @@ pub fn 输入(
                 输入列 = 0;
                 continue;
             }
-
             // 退格
             if key_event.code == KeyCode::Backspace {
                 if 已输入 && 输入列 > 0 {
@@ -98,6 +106,7 @@ pub fn 输入(
                     KeyCode::Up => {
                         crate::control::上移(光标, &行向量, 起始行索引, 最大行数, 列数)?;
                     }
+
                     KeyCode::Down => {
                         crate::control::下移(
                             光标,
