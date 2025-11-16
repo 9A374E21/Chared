@@ -1,37 +1,6 @@
 // src/output.rs
-use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    execute,
-    terminal::{Clear, ClearType,EnterAlternateScreen, size},
-};
 
-use std::io;
-use std::io::Write;
-
-pub fn 设置视图(
-    content: &String,
-) -> io::Result<(
-    u16,       // 行数
-    u16,       // 保留行数
-    usize,     // 最大可显示行数
-    Vec<&str>, // 行向量
-)> {
-    // 初始化终端并进入交替屏幕
-    execute!(io::stdout(), EnterAlternateScreen)?;
-    execute!(io::stdout(), MoveTo(0, 0))?;
-
-    let (_列数, 行数) = size()?;
-    let mut 保留行 = ((行数 as f64) * 0.3).ceil() as u16;
-    保留行 = std::cmp::max(3, 保留行);
-    保留行 = std::cmp::min(行数, 保留行);
-
-    let 行向量: Vec<&str> = content.lines().collect();
-    // 计算可显示行数，确保不超过文件实际行数
-    let 最大行数: usize = std::cmp::min((行数 - 保留行) as usize, 行向量.len());
-
-    Ok((行数, 保留行, 最大行数, 行向量))
-}
-
+use crate::*;
 pub fn 显示(
     内容片段: &[&str],
     光标: &mut crate::control::光标,
