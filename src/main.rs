@@ -18,10 +18,10 @@ pub use std::{
 };
 
 pub struct 光标 {
-    pub 行: u16,
     pub 列: u16,
-    pub 行编号: usize,
+    pub 行: u16,
     pub 列历史: u16,
+    pub 行索引: usize,
 }
 
 pub fn 读取(path: &str) -> io::Result<String> {
@@ -49,25 +49,23 @@ fn main() -> io::Result<()> {
     保留行 = std::cmp::max(4, 保留行);
     保留行 = std::cmp::min(行数, 保留行);
 
-    let binding = String::from_utf8(缓冲区.clone()).unwrap();
-    let 行向量: Vec<&str> = binding.lines().collect();
+    let mut binding = String::from_utf8(缓冲区.clone()).unwrap();
+    let mut 行向量: Vec<&str> = binding.lines().collect();
     let mut 最大行数: usize = std::cmp::min((行数 - 保留行) as usize, 行向量.len());
 
     let mut 输入区 = String::new();
     let mut 输入起始行 = 行数 - 保留行 + 1;
 
-    let mut 行索引 = 0;
-
     let mut 光标 = 光标 {
         行: 0,
         列: 0,
-        行编号: 0,
+        行索引: 0,
         列历史: 0,
     };
     let mut 原高宽 = size()?;
 
     output::文件显示(
-        &行向量[行索引..std::cmp::min(行索引 + 最大行数, 行向量.len())],
+        &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
         &mut 光标,
     )?;
 
@@ -106,7 +104,7 @@ fn main() -> io::Result<()> {
 
             // 刷新文件显示
             output::文件显示(
-                &行向量[行索引..std::cmp::min(行索引 + 最大行数, 行向量.len())],
+                &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
                 &mut 光标,
             )?;
 
@@ -164,7 +162,7 @@ fn main() -> io::Result<()> {
             }
             // 退格
             if 事件.code == 键::Backspace {
-                输入区.pop();  
+                输入区.pop();
                 output::输入显示(&输入区, 输入起始行)?;
             }
 
@@ -182,38 +180,24 @@ fn main() -> io::Result<()> {
             ) {
                 match 事件.code {
                     键::Home => {
-                        control::提前(&mut 光标, &行向量, 行索引, 列数, false)?;
+                        control::提前(&mut 光标, &行向量, 列数, false)?;
                     }
-                    键::Left => control::右移(&mut 光标, &行向量, &mut 行索引, true),
-                    键::Right => control::右移(&mut 光标, &行向量, &mut 行索引, false),
+                    键::Left => control::右移(&mut 光标, &行向量, false),
+                    键::Right => control::右移(&mut 光标, &行向量, true),
                     键::Up => {
-                        control::下移(
-                            &mut 光标,
-                            &行向量,
-                            &mut 行索引,
-                            最大行数,
-                            列数,
-                            true, // 上移
-                        )?;
+                        control::下移(&mut 光标, &行向量, 最大行数, false)?;
                     }
                     键::Down => {
-                        control::下移(
-                            &mut 光标,
-                            &行向量,
-                            &mut 行索引,
-                            最大行数,
-                            列数,
-                            false, // 下移
-                        )?;
+                        control::下移(&mut 光标, &行向量, 最大行数, true)?;
                     }
                     键::PageUp => {
-                        control::下翻(&mut 光标, &行向量, &mut 行索引, 最大行数, true)?;
+                        control::下翻(&mut 光标, &行向量, 最大行数, false)?;
                     }
                     键::PageDown => {
-                        control::下翻(&mut 光标, &行向量, &mut 行索引, 最大行数, false)?;
+                        control::下翻(&mut 光标, &行向量, 最大行数, true)?;
                     }
                     键::End => {
-                        control::提前(&mut 光标, &行向量, 行索引, 列数, true)?;
+                        control::提前(&mut 光标, &行向量, 列数, true)?;
                     }
 
                     _ => {}
@@ -225,46 +209,37 @@ fn main() -> io::Result<()> {
             // 字符输入
             if let 键::Char(ch) = 事件.code {
                 if ch == ' ' {
-                    // 插入空格逻辑（已修正）
-                    let mut 插入位置: usize = 0;
-
-                    for _ in 0..光标.行 as usize {
-                        // 跳过当前行的所有字符
-                        while 插入位置 < 缓冲区.len() && 缓冲区[插入位置] != b'\n' {
-                            插入位置 += 1;
+                    // 定位插入位置
+                    // 先算出光标所在行之前的字符总数
+                    let mut insert_index: usize = 0;
+                    for (idx, line) in 行向量.iter().enumerate() {
+                        // 光标.行索引只计算滚动和翻页后第一行的索引
+                        // 要把当前光标所在的行到光标.行索引之间的长度加进去
+                        if idx < 光标.行索引 + 光标.行 as usize {
+                            // 每一行后面都要加上换行符 '\n'
+                            insert_index += line.len() + 1;
+                        } else if idx == 光标.行索引+光标.行 as usize {
+                            // 当前行，光标列对应的位置
+                            insert_index += 光标.列 as usize;
+                            break;
                         }
-                        // 若已到达换行符，跳过它（\n）
-                        if 插入位置 < 缓冲区.len() {
-                            插入位置 += 1; // 跳过 '\n'
-                        }
-                    }
-
-                    // 在当前行内定位光标列
-                    插入位置 += 光标.列 as usize;
-
-                    let 当前行 = 行向量.get(行索引 + 光标.行 as usize).unwrap_or(&"");
-                    光标.列 = control::调整列到字符边界(当前行, 光标.列);
-
-                    // 计算插入位置对应的字符宽度（多字节）
-                    let 字宽 = control::当前字符宽度(当前行, 光标.列);
-                    if 字宽 == 0 || (光标.列 + 1) > 当前行.len() as u16 {
-                        return Ok(());
                     }
 
                     // 在缓冲区插入空格
-                    缓冲区.insert(插入位置, b' ');
-                    光标.列 += 1;
+                    缓冲区.insert(insert_index, b' ');
+                    光标.列 += 1; // 光标往右移动一列
 
                     // 同步行向量
-                    let binding = String::from_utf8_lossy(&缓冲区).to_string();
-                    let 行: Vec<&str> = binding.lines().collect();
+                    binding = String::from_utf8_lossy(&缓冲区).to_string();
+                    行向量 = binding.lines().collect();
 
                     output::文件显示(
-                        &行[行索引..std::cmp::min(行索引 + 最大行数, 行.len())],
+                        &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
                         &mut 光标,
                     )?;
                 } else {
-                    control::字符输入(ch, 输入起始行, &mut 输入区)?;
+                    // 普通字符输入
+                    control::字符输入(ch, 输入起始行, &mut 输入区, &mut 光标)?;
                 }
             }
         }
