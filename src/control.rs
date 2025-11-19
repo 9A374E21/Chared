@@ -215,3 +215,29 @@ pub fn 字符输入(
 
     Ok(())
 }
+
+/// 计算光标位置在缓冲区中的索引（字节偏移）
+pub fn 插入位置(光标: &光标, 行向量: Vec<&str>) -> usize {
+    let mut 插入位置 = 0usize;
+    for (idx, 行) in 行向量.iter().enumerate() {
+        if idx < 光标.行索引 + 光标.行 as usize {
+            插入位置 += 行.len() + 1; // 包括换行符
+        } else if idx == 光标.行索引 + 光标.行 as usize {
+            let mut width = 0usize;
+            let mut chinese_count = 0usize;
+            for ch in 行.chars() {
+                let ch_width = if ch.is_ascii() { 1 } else { 2 };
+                if width >= 光标.列 as usize {
+                    break;
+                }
+                if !ch.is_ascii() {
+                    chinese_count += 1;
+                }
+                width += ch_width;
+            }
+            插入位置 += 光标.列 as usize + chinese_count;
+            break;
+        }
+    }
+    插入位置
+}

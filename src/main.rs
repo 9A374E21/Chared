@@ -29,7 +29,10 @@ pub fn 读取(path: &str) -> io::Result<String> {
     let mut 文件 = File::open(path)?;
     let mut 缓冲区 = Vec::new();
     文件.read_to_end(&mut 缓冲区)?;
-    String::from_utf8(缓冲区).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    // 将可能出现的 Windows 换行符 \r\n 转为 Unix 换行符 \n
+    String::from_utf8(缓冲区)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        .and_then(|s| Ok(s.replace("\r\n", "\n")))
 }
 
 fn main() -> io::Result<()> {
@@ -160,6 +163,28 @@ fn main() -> io::Result<()> {
                 输入区 = "".to_string(); // 清空输入区
                 output::输入显示(&输入区, 输入起始行)?;
             }
+
+            //回车键输入
+            if 事件.code == 键::Enter {
+                // 将输入区内容插入缓冲区（使用 splice 插入字节 slice）
+                let insert_pos = control::插入位置(&光标, 行向量);
+                缓冲区.splice(insert_pos..insert_pos, 输入区.as_bytes().iter().cloned());
+
+                // 光标移动到新文本末尾
+                光标.列 += 输入区.len() as u16;
+
+                // 同步行向量
+                可读区 = String::from_utf8_lossy(&缓冲区).to_string();
+                行向量 = 可读区.lines().collect();
+
+                // 清空输入区并刷新显示
+                输入区.clear();
+                output::文件显示(
+                    &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
+                    &mut 光标,
+                )?;
+                output::输入显示(&输入区, 输入起始行)?;
+            }
             // 退格
             if 事件.code == 键::Backspace {
                 输入区.pop();
@@ -209,19 +234,8 @@ fn main() -> io::Result<()> {
             // 字符输入
             if let 键::Char(ch) = 事件.code {
                 if ch == ' ' {
-                    // 定位插入位置
-                    let mut 插入位置: usize = 0;
-                    for (idx, 行) in 行向量.iter().enumerate() {
-                        if idx < 光标.行索引 + 光标.行 as usize {
-                            插入位置 += 行.len() + 1;
-                        } else if idx == 光标.行索引+光标.行 as usize {
-                            插入位置 += 光标.列 as usize;
-                            break;
-                        }
-                    }
-
                     // 在缓冲区插入空格
-                    缓冲区.insert(插入位置, b' ');
+                    缓冲区.insert(control::插入位置(&光标, 行向量), b' ');
                     光标.列 += 1; // 光标往右移动一列
 
                     // 同步行向量
