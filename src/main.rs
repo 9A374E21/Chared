@@ -1,6 +1,7 @@
 // src/main.rs
 
 mod control;
+mod input;
 mod output;
 
 pub use crossterm::{
@@ -12,6 +13,7 @@ pub use crossterm::{
         disable_raw_mode as 转义模式, enable_raw_mode as 原始模式, size,
     },
 };
+
 pub use std::{
     fs::File,
     io::{self, Read, Write, stdout as 标准输出},
@@ -23,9 +25,14 @@ pub struct 光标 {
     pub 列历史: u16,
     pub 行索引: usize,
 }
+struct 缓冲区 {
+    原始: Vec<u8>,
+    可读: String,
+    行向量: Vec<String>,
+}
 
 pub fn 读取(path: &str) -> io::Result<String> {
-    // 打开文件并一次性读取全部内容，保留完整缓冲区
+    // 打开文件并一次性读取全部内容，保留完整原始
     let mut 文件 = File::open(path)?;
     let mut 缓冲区 = Vec::new();
     文件.read_to_end(&mut 缓冲区)?;
@@ -38,12 +45,16 @@ pub fn 读取(path: &str) -> io::Result<String> {
 fn main() -> io::Result<()> {
     let 参数: Vec<String> = std::env::args().collect();
 
-    let mut 缓冲区: Vec<u8> = if let Some(path) = 参数.get(1) {
-        读取(path)?.into()
-    } else {
-        Vec::new() // 空缓冲区
+    // 初始化缓冲区
+    let mut 缓冲区 = 缓冲区 {
+        原始: if let Some(path) = 参数.get(1) {
+            读取(path)?.into()
+        } else {
+            Vec::new()
+        },
+        可读: String::new(),
+        行向量: Vec::new(),
     };
-
     execute!(标准输出(), 进入副屏)?;
     execute!(标准输出(), 移到(0, 0))?;
 
@@ -52,9 +63,9 @@ fn main() -> io::Result<()> {
     保留行 = std::cmp::max(4, 保留行);
     保留行 = std::cmp::min(行数, 保留行);
 
-    let mut 可读区 = String::from_utf8(缓冲区.clone()).unwrap();
-    let mut 行向量: Vec<&str> = 可读区.lines().collect();
-    let mut 最大行数: usize = std::cmp::min((行数 - 保留行) as usize, 行向量.len());
+    缓冲区.可读 = String::from_utf8(缓冲区.原始.clone()).unwrap();
+    缓冲区.行向量 = 缓冲区.可读.lines().map(|s| s.to_string()).collect(); // 生成行向量
+    let mut 最大行数: usize = std::cmp::min((行数 - 保留行) as usize, 缓冲区.行向量.len());
 
     let mut 输入区 = String::new();
     let mut 输入起始行 = 行数 - 保留行 + 1;
@@ -68,7 +79,7 @@ fn main() -> io::Result<()> {
     let mut 原高宽 = size()?;
 
     output::文件显示(
-        &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
+        &缓冲区.行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 缓冲区.行向量.len())],
         &mut 光标,
     )?;
 
@@ -87,17 +98,17 @@ fn main() -> io::Result<()> {
         };
 
         let (新列数, 新行数) = size()?; // 当前高宽
-        let new_size = (新列数, 新行数); // 组合成元组用于比较
+        let 新高宽 = (新列数, 新行数); // 组合成元组用于比较
         // 每次高宽变化时更新
-        if new_size != 原高宽 {
+        if 新高宽 != 原高宽 {
             // 重新计算保留行
             let mut 保留行 = ((新行数 as f64) * 0.25).ceil() as u16;
             保留行 = std::cmp::max(4, 保留行);
             保留行 = std::cmp::min(新行数, 保留行);
 
             // 更新最大行数
-            最大行数 = std::cmp::min((新行数 - 保留行) as usize, 行向量.len());
-            输入起始行 = new_size.1 - 保留行 + 1;
+            最大行数 = std::cmp::min((新行数 - 保留行) as usize, 缓冲区.行向量.len());
+            输入起始行 = 新高宽.1 - 保留行 + 1;
 
             if 新行数 < 原高宽.1 {
                 // 清除刷新前残留
@@ -107,7 +118,8 @@ fn main() -> io::Result<()> {
 
             // 刷新文件显示
             output::文件显示(
-                &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
+                &缓冲区.行向量
+                    [光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 缓冲区.行向量.len())],
                 &mut 光标,
             )?;
 
@@ -123,20 +135,20 @@ fn main() -> io::Result<()> {
             continue;
         }
 
-        if let Event::Key(事件) = event
-            && 事件.kind == 按键种类::Press
+        if let Event::Key(按键) = event
+            && 按键.kind == 按键种类::Press
         {
             // Ctrl+S 保存
-            if let Event::Key(事件) = event
-                && 事件.kind == 按键种类::Press
-                && 事件.code == 键::Char('s')
-                && 事件.modifiers.contains(KeyModifiers::CONTROL)
+            if let Event::Key(按键) = event
+                && 按键.kind == 按键种类::Press
+                && 按键.code == 键::Char('s')
+                && 按键.modifiers.contains(KeyModifiers::CONTROL)
             {
                 if let Some(ref path) = 文件路径 {
-                    // 将缓冲区写入文件
+                    // 将原始写入文件
                     match File::create(path) {
                         Ok(mut f) => {
-                            if let Err(e) = f.write_all(&*缓冲区) {
+                            if let Err(e) = f.write_all(&*缓冲区.原始) {
                                 execute!(标准输出(), 离开副屏)?;
                                 return Err(e);
                             }
@@ -152,48 +164,32 @@ fn main() -> io::Result<()> {
             }
 
             // C-x 退出
-            if 事件.code == 键::Char('x') && 事件.modifiers.contains(KeyModifiers::CONTROL) {
+            if 按键.code == 键::Char('x') && 按键.modifiers.contains(KeyModifiers::CONTROL) {
                 execute!(标准输出(), 离开副屏)?;
                 转义模式()?;
                 break;
             }
 
             // Esc 清空
-            if 事件.code == 键::Esc {
+            if 按键.code == 键::Esc {
                 输入区 = "".to_string(); // 清空输入区
                 output::输入显示(&输入区, 输入起始行)?;
             }
 
-            //回车键输入
-            if 事件.code == 键::Enter {
-                // 将输入区内容插入缓冲区（使用 splice 插入字节 slice）
-                let insert_pos = control::插入位置(&光标, 行向量);
-                缓冲区.splice(insert_pos..insert_pos, 输入区.as_bytes().iter().cloned());
-
-                // 光标移动到新文本末尾
-                光标.列 += 输入区.len() as u16;
-
-                // 同步行向量
-                可读区 = String::from_utf8_lossy(&缓冲区).to_string();
-                行向量 = 可读区.lines().collect();
-
-                // 清空输入区并刷新显示
-                输入区.clear();
-                output::文件显示(
-                    &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
-                    &mut 光标,
-                )?;
-                output::输入显示(&输入区, 输入起始行)?;
-            }
-            // 退格
-            if 事件.code == 键::Backspace {
-                输入区.pop();
-                output::输入显示(&输入区, 输入起始行)?;
-            }
+            input::按键处理(
+                &event,
+                &mut 输入区,
+                &mut 缓冲区.原始,
+                &mut 光标,
+                &mut 缓冲区.行向量,
+                &mut 缓冲区.可读,
+                输入起始行,
+                最大行数,
+            )?;
 
             // 光标移动
             if matches!(
-                事件.code,
+                按键.code,
                 键::Home
                     | 键::Left
                     | 键::Right
@@ -203,26 +199,26 @@ fn main() -> io::Result<()> {
                     | 键::PageUp
                     | 键::PageDown
             ) {
-                match 事件.code {
+                match 按键.code {
                     键::Home => {
-                        control::提前(&mut 光标, &行向量, 列数, false)?;
+                        control::提前(&mut 光标, &缓冲区.行向量, 列数, false)?;
                     }
-                    键::Left => control::右移(&mut 光标, &行向量, false),
-                    键::Right => control::右移(&mut 光标, &行向量, true),
+                    键::Left => control::右移(&mut 光标, &缓冲区.行向量, false),
+                    键::Right => control::右移(&mut 光标, &缓冲区.行向量, true),
                     键::Up => {
-                        control::下移(&mut 光标, &行向量, 最大行数, false)?;
+                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, false)?;
                     }
                     键::Down => {
-                        control::下移(&mut 光标, &行向量, 最大行数, true)?;
+                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, true)?;
                     }
                     键::PageUp => {
-                        control::下翻(&mut 光标, &行向量, 最大行数, false)?;
+                        control::下翻(&mut 光标, &缓冲区.行向量, 最大行数, false)?;
                     }
                     键::PageDown => {
-                        control::下翻(&mut 光标, &行向量, 最大行数, true)?;
+                        control::下翻(&mut 光标, &缓冲区.行向量, 最大行数, true)?;
                     }
                     键::End => {
-                        control::提前(&mut 光标, &行向量, 列数, true)?;
+                        control::提前(&mut 光标, &缓冲区.行向量, 列数, true)?;
                     }
 
                     _ => {}
@@ -232,23 +228,36 @@ fn main() -> io::Result<()> {
             }
 
             // 字符输入
-            if let 键::Char(ch) = 事件.code {
+            if let 键::Char(ch) = 按键.code {
                 if ch == ' ' {
-                    // 在缓冲区插入空格
-                    缓冲区.insert(control::插入位置(&光标, 行向量), b' ');
-                    光标.列 += 1; // 光标往右移动一列
-
+                    if 输入区.is_empty() {
+                        // 在原始插入空格
+                        缓冲区.原始.insert(input::定位(&光标, &缓冲区.行向量), b' ');
+                        光标.列 += 1; // 光标往右移动一列
+                    } else {
+                        // 在输入区写空格并将输入区写入缓冲区
+                        input::字符输入(' ', 输入起始行, &mut 输入区, &mut 光标)?;
+                        // 将输入区内容插入原始（使用 splice 插入字节 slice）
+                        let 定位 = input::定位(&光标, &缓冲区.行向量);
+                        缓冲区
+                            .原始
+                            .splice(定位..定位, 输入区.as_bytes().iter().cloned());
+                        光标.列 += 输入区.len() as u16;
+                        输入区.clear();
+                        output::输入显示(&输入区, 输入起始行)?;
+                    }
                     // 同步行向量
-                    可读区 = String::from_utf8_lossy(&缓冲区).to_string();
-                    行向量 = 可读区.lines().collect();
+                    缓冲区.可读 = String::from_utf8_lossy(&缓冲区.原始).to_string();
+                    缓冲区.行向量 = 缓冲区.可读.lines().map(|s| s.to_string()).collect();
 
                     output::文件显示(
-                        &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
+                        &缓冲区.行向量[光标.行索引
+                            ..std::cmp::min(光标.行索引 + 最大行数, 缓冲区.行向量.len())],
                         &mut 光标,
                     )?;
                 } else {
                     // 普通字符输入
-                    control::字符输入(ch, 输入起始行, &mut 输入区, &mut 光标)?;
+                    input::字符输入(ch, 输入起始行, &mut 输入区, &mut 光标)?;
                 }
             }
         }

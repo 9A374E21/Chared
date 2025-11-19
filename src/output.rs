@@ -2,7 +2,7 @@
 
 use crate::*;
 
-pub fn 文件显示(内容片段: &[&str], 光标: &mut 光标) -> io::Result<()> {
+pub fn 文件显示(内容片段: &[String], 光标: &mut 光标) -> io::Result<()> {
     // 隐藏光标，移到起点
     execute!(io::stdout(), Hide, 移到(0, 0))?;
 
@@ -15,8 +15,9 @@ pub fn 文件显示(内容片段: &[&str], 光标: &mut 光标) -> io::Result<()
 
     // 写入
     for (i, 行) in 内容片段.iter().enumerate() {
+        let line_str = 行.as_str(); // 转成 &str
         execute!(io::stdout(), 移到(0, i as u16))?;
-        write!(io::stdout(), "{}", 行)?;
+        write!(io::stdout(), "{}", line_str)?;
         writeln!(io::stdout())?;
     }
     io::stdout().flush()?;
@@ -27,7 +28,7 @@ pub fn 文件显示(内容片段: &[&str], 光标: &mut 光标) -> io::Result<()
     let 有效行索引 = std::cmp::min(光标.行 as usize, 内容片段.len().saturating_sub(1));
     // 取对应行（若无内容则空字符串）
     let 当前行 = if 有效行索引 < 内容片段.len() {
-        内容片段[有效行索引]
+        内容片段[有效行索引].as_str()
     } else {
         ""
     };
@@ -50,7 +51,6 @@ pub fn 输入显示(输入区: &str, 输入起始行: u16) -> io::Result<()> {
     execute!(io::stdout(), 移到(0, 输入起始行))?;
     execute!(io::stdout(), Clear(ClearType::CurrentLine))?;
 
-    // 写入缓冲区内容
     write!(io::stdout(), "{}", 输入区)?;
     io::stdout().flush()?;
 
