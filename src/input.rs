@@ -24,12 +24,7 @@ pub fn 按键处理(
             let 定位 = input::定位(&光标, &行向量);
             if 定位 > 0 {
                 缓冲区.remove(定位 - 1);
-                光标.列 = 光标.列.saturating_sub(1);
-                // 如果删除的字符是本行最后一个，则下移光标
-                if 光标.列 == 0 && 光标.行索引 < 行向量.len() {
-                    control::下移(光标, 行向量, 最大行数, false, Some(false))?;
-                }
-                // 同步行向量并刷新显示
+                control::右移(光标, 行向量, 最大行数, false);
                 可读缓冲区.clear();
                 可读缓冲区.push_str(&String::from_utf8_lossy(缓冲区).to_string());
                 行向量.clear();
@@ -46,20 +41,25 @@ pub fn 按键处理(
     {
         // 删除定位后一个字符
         let 定位 = input::定位(&光标, &行向量);
-        if 定位 > 0 {
+        if 定位 < 缓冲区.len() {
             缓冲区.remove(定位);
-            // 同步行向量并刷新显示
-            可读缓冲区.clear();
-            可读缓冲区.push_str(&String::from_utf8_lossy(缓冲区).to_string());
-            行向量.clear();
-            行向量.extend(可读缓冲区.lines().map(|s| s.to_string()));
-            output::文件显示(
-                &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
-                光标,
-            )?;
+        } else {
+            if 光标.列 == 0 {
+                control::滚动(光标, 行向量, 最大行数, false, Some(false)).ok();
+            } else {
+                control::右移(光标, 行向量, 最大行数, false);
+            }
         }
+        // 同步行向量并刷新显示
+        可读缓冲区.clear();
+        可读缓冲区.push_str(&String::from_utf8_lossy(&缓冲区).to_string());
+        行向量.clear();
+        行向量.extend(可读缓冲区.lines().map(|s| s.to_string()));
+        output::文件显示(
+            &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
+            光标,
+        )?;
     }
-
     // 回车键输入
     if let Event::Key(按键) = event
         && 按键.code == 键::Enter
