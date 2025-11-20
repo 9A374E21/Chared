@@ -25,6 +25,10 @@ pub fn 按键处理(
             if 定位 > 0 {
                 缓冲区.remove(定位 - 1);
                 光标.列 = 光标.列.saturating_sub(1);
+                // 如果删除的字符是本行最后一个，则下移光标
+                if 光标.列 == 0 && 光标.行索引 < 行向量.len() {
+                    control::下移(光标, 行向量, 最大行数, false, Some(false))?;
+                }
                 // 同步行向量并刷新显示
                 可读缓冲区.clear();
                 可读缓冲区.push_str(&String::from_utf8_lossy(缓冲区).to_string());
@@ -79,15 +83,13 @@ pub fn 按键处理(
 
         // 清空输入区并刷新显示
         if 输入区.is_empty() {
-            control::下移(光标, &行向量, 最大行数, true)?;
-            光标.列 = 0
+            control::下移(光标, &行向量, 最大行数, true, Some(true))?;
         } else {
             // 光标移动到新文本末尾
             光标.列 += 输入区.len() as u16;
             输入区.clear();
             output::输入显示(&输入区, 输入起始行)?;
         }
-
         output::文件显示(
             &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
             光标,

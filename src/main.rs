@@ -203,13 +203,13 @@ fn main() -> io::Result<()> {
                     键::Home => {
                         control::提前(&mut 光标, &缓冲区.行向量, 列数, false)?;
                     }
-                    键::Left => control::右移(&mut 光标, &缓冲区.行向量, false),
-                    键::Right => control::右移(&mut 光标, &缓冲区.行向量, true),
+                    键::Left => control::右移(&mut 光标, &缓冲区.行向量, 最大行数, false),
+                    键::Right => control::右移(&mut 光标, &缓冲区.行向量, 最大行数, true),
                     键::Up => {
-                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, false)?;
+                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, false, None)?;
                     }
                     键::Down => {
-                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, true)?;
+                        control::下移(&mut 光标, &缓冲区.行向量, 最大行数, true, None)?;
                     }
                     键::PageUp => {
                         control::下翻(&mut 光标, &缓冲区.行向量, 最大行数, false)?;
