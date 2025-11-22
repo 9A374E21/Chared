@@ -9,16 +9,55 @@ pub fn 按键处理(
     光标: &mut 光标,
     行向量: &mut Vec<String>,
     可读缓冲区: &mut String,
-    输入起始行: u16,
     最大行数: usize,
+    列数: u16,
 ) -> Result<(), std::io::Error> {
+    // 处理键盘移动（Home, Left, Right 等）
+    if let Event::Key(按键) = event
+        && matches!(
+            按键.code,
+            键::Home
+                | 键::Left
+                | 键::Right
+                | 键::Up
+                | 键::Down
+                | 键::End
+                | 键::PageUp
+                | 键::PageDown
+        )
+    {
+        match 按键.code {
+            键::Home => {
+                control::提前(光标, 行向量, 列数, false)?;
+            }
+            键::Left => control::右移(光标, 行向量, 最大行数, false),
+            键::Right => control::右移(光标, 行向量, 最大行数, true),
+            键::Up => {
+                control::下移(光标, 行向量, 最大行数, false, None)?;
+            }
+            键::Down => {
+                control::下移(光标, 行向量, 最大行数, true, None)?;
+            }
+            键::PageUp => {
+                control::下翻(光标, 行向量, 最大行数, false)?;
+            }
+            键::PageDown => {
+                control::下翻(光标, 行向量, 最大行数, true)?;
+            }
+            键::End => {
+                control::提前(光标, 行向量, 列数, true)?;
+            }
+            _ => {}
+        }
+        execute!(标准输出(), 移到(光标.列, 光标.行))?;
+    }
+
     if let Event::Key(按键) = event
         && 按键.code == 键::Backspace
     {
         // 退格
         if !输入区.is_empty() {
             输入区.pop();
-            output::输入显示(输入区.as_str(), 输入起始行)?;
         } else {
             // 当输入区为空时删除原始定位前一个字符
             let 定位 = input::定位(&光标, &行向量);
@@ -29,10 +68,6 @@ pub fn 按键处理(
                 可读缓冲区.push_str(&String::from_utf8_lossy(缓冲区).to_string());
                 行向量.clear();
                 行向量.extend(可读缓冲区.lines().map(|s| s.to_string()));
-                output::文件显示(
-                    &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
-                    光标,
-                )?;
             }
         }
     }
@@ -55,10 +90,6 @@ pub fn 按键处理(
         可读缓冲区.push_str(&String::from_utf8_lossy(&缓冲区).to_string());
         行向量.clear();
         行向量.extend(可读缓冲区.lines().map(|s| s.to_string()));
-        output::文件显示(
-            &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
-            光标,
-        )?;
     }
     // 回车键输入
     if let Event::Key(按键) = event
@@ -88,26 +119,15 @@ pub fn 按键处理(
             // 光标移动到新文本末尾
             光标.列 += 输入区.len() as u16;
             输入区.clear();
-            output::输入显示(&输入区, 输入起始行)?;
         }
-        output::文件显示(
-            &行向量[光标.行索引..std::cmp::min(光标.行索引 + 最大行数, 行向量.len())],
-            光标,
-        )?;
     }
     Ok(())
 }
 
-pub fn 字符输入(
-    符: char,
-    输入起始行: u16,
-    输入区: &mut String,
-    _光标: &mut 光标,
-) -> io::Result<()> {
+pub fn 字符输入(符: char, 输入区: &mut String, _光标: &mut 光标) -> io::Result<()> {
     // 将字符追加到输入
     输入区.push(符);
     // 输入区.push_str(&(&光标.行索引 + &(光标.行 as usize)).to_string());
-    output::输入显示(输入区.as_str(), 输入起始行)?;
 
     Ok(())
 }
